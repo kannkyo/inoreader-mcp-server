@@ -84,12 +84,12 @@ export class InoreaderClient {
         return this.request<T>(method, endpoint, params, body);
       }
       throw new AuthenticationError(
-        "Authentication failed. Token may be expired. Run 'bun run start auth login' to re-authenticate.",
+        "Authentication failed. Token may be expired. Use the auth_login tool to re-authenticate.",
       );
     }
     if (response.status === 401) {
       throw new AuthenticationError(
-        "Authentication failed. Token may be expired. Run 'bun run start auth login' to re-authenticate.",
+        "Authentication failed. Token may be expired. Use the auth_login tool to re-authenticate.",
       );
     }
     if (response.status === 403) {

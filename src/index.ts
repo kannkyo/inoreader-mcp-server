@@ -2,7 +2,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { login, logout, showStatus } from "./auth.js";
+import {
+  getAuthStatus,
+  login,
+  logout,
+  showStatus,
+  startAuthFlow,
+} from "./auth.js";
 import {
   AuthenticationError,
   type InoreaderClient,
@@ -11,6 +17,10 @@ import {
 import type { StreamContentsResponse, StreamItem } from "./types.js";
 
 let client: InoreaderClient | null = null;
+let pendingAuthFlow: {
+  tokenPromise: Promise<void>;
+  stopServer: () => void;
+} | null = null;
 
 async function getClient(): Promise<InoreaderClient> {
   if (!client) {
@@ -58,16 +68,8 @@ function formatArticle(item: StreamItem) {
 function handleToolError(e: unknown) {
   const message = e instanceof Error ? e.message : String(e);
 
-  // Disconnect server on authentication failure
   if (e instanceof AuthenticationError) {
-    setTimeout(async () => {
-      console.error("Authentication failed. Disconnecting MCP server...");
-      try {
-        await server.close();
-      } catch (closeError) {
-        console.error("Error closing server:", closeError);
-      }
-    }, 100);
+    client = null;
   }
 
   return {
@@ -82,6 +84,129 @@ const server = new McpServer({
   name: "inoreader-mcp",
   version: "0.1.0",
 });
+
+// Auth login
+server.tool(
+  "auth_login",
+  "Start OAuth authentication flow. Returns a URL to open in a browser. After authenticating, call auth_complete to finish.",
+  {},
+  async () => {
+    try {
+      if (pendingAuthFlow) {
+        pendingAuthFlow.stopServer();
+        pendingAuthFlow = null;
+      }
+
+      const { authUrl, tokenPromise, stopServer } = await startAuthFlow();
+      pendingAuthFlow = { tokenPromise, stopServer };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                authUrl,
+                message:
+                  "Open the URL in a browser to authenticate. After completing authentication, call auth_complete.",
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    } catch (e) {
+      return handleToolError(e);
+    }
+  },
+);
+
+// Auth complete
+server.tool(
+  "auth_complete",
+  "Complete the OAuth authentication flow started by auth_login. Waits for the browser callback and saves tokens.",
+  {},
+  async () => {
+    try {
+      if (!pendingAuthFlow) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "No pending authentication flow. Call auth_login first.",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      await pendingAuthFlow.tokenPromise;
+      pendingAuthFlow = null;
+      client = null;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              message: "Authentication successful. Tokens saved to keychain.",
+            }),
+          },
+        ],
+      };
+    } catch (e) {
+      pendingAuthFlow = null;
+      return handleToolError(e);
+    }
+  },
+);
+
+// Auth status
+server.tool(
+  "auth_status",
+  "Show current authentication status",
+  {},
+  async () => {
+    try {
+      const status = await getAuthStatus();
+      return {
+        content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
+      };
+    } catch (e) {
+      return handleToolError(e);
+    }
+  },
+);
+
+// Auth logout
+server.tool(
+  "auth_logout",
+  "Remove saved tokens from keychain",
+  {},
+  async () => {
+    try {
+      await logout();
+      client = null;
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              message: "Logged out. Tokens removed from keychain.",
+            }),
+          },
+        ],
+      };
+    } catch (e) {
+      return handleToolError(e);
+    }
+  },
+);
 
 // Get user info
 server.tool(

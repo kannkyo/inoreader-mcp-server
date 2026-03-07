@@ -100,7 +100,7 @@ export async function refreshAccessToken(
   return response.json() as Promise<TokenResponse>;
 }
 
-async function openBrowser(url: string): Promise<void> {
+export async function openBrowser(url: string): Promise<void> {
   const { $ } = await import("bun");
 
   if (process.platform === "darwin") {
@@ -114,8 +114,12 @@ async function openBrowser(url: string): Promise<void> {
   }
 }
 
-async function startCallbackServer(): Promise<string> {
-  return new Promise((resolve, reject) => {
+function startCallbackServer(): {
+  codePromise: Promise<string>;
+  stop: () => void;
+} {
+  let stopFn: () => void = () => {};
+  const codePromise = new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(
       () => {
         server.stop();
@@ -160,11 +164,41 @@ async function startCallbackServer(): Promise<string> {
       },
     });
 
+    stopFn = () => {
+      clearTimeout(timeout);
+      server.stop();
+      reject(new Error("Authentication flow was cancelled"));
+    };
+
     console.log(`Callback server started on port ${REDIRECT_PORT}`);
   });
+  return { codePromise, stop: () => stopFn() };
 }
 
 export async function login(): Promise<void> {
+  const { authUrl, tokenPromise } = await startAuthFlow();
+
+  console.log("Opening browser for authentication...");
+  console.log(`If the browser doesn't open, visit:\n${authUrl}\n`);
+
+  await openBrowser(authUrl);
+
+  console.log("Waiting for authentication...");
+  await tokenPromise;
+
+  console.log("Authentication successful! Tokens saved to keychain.");
+}
+
+export async function logout(): Promise<void> {
+  await deleteTokens();
+  console.log("Logged out. Tokens removed from keychain.");
+}
+
+export async function startAuthFlow(): Promise<{
+  authUrl: string;
+  tokenPromise: Promise<void>;
+  stopServer: () => void;
+}> {
   const keychainAvailable = await isKeychainAvailable();
   if (!keychainAvailable) {
     throw new Error(
@@ -176,35 +210,53 @@ export async function login(): Promise<void> {
 
   const config = getAuthConfig();
   const authUrl = buildAuthorizationUrl(config.appId);
+  const { codePromise, stop } = startCallbackServer();
 
-  console.log("Opening browser for authentication...");
-  console.log(`If the browser doesn't open, visit:\n${authUrl}\n`);
+  const tokenPromise = (async () => {
+    const code = await codePromise;
+    const tokens = await exchangeCodeForTokens(code, config);
+    const expiresAt = Date.now() + tokens.expires_in * 1000;
+    await saveTokens({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt,
+    });
+  })();
 
-  // Start callback server before opening browser
-  const codePromise = startCallbackServer();
-
-  await openBrowser(authUrl);
-
-  console.log("Waiting for authentication...");
-  const code = await codePromise;
-
-  console.log("Exchanging code for tokens...");
-  const tokens = await exchangeCodeForTokens(code, config);
-
-  const expiresAt = Date.now() + tokens.expires_in * 1000;
-
-  await saveTokens({
-    accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
-    expiresAt,
-  });
-
-  console.log("Authentication successful! Tokens saved to keychain.");
+  return { authUrl, tokenPromise, stopServer: stop };
 }
 
-export async function logout(): Promise<void> {
-  await deleteTokens();
-  console.log("Logged out. Tokens removed from keychain.");
+export async function getAuthStatus(): Promise<Record<string, unknown>> {
+  const keychainAvailable = await isKeychainAvailable();
+
+  if (process.env.INOREADER_ACCESS_TOKEN) {
+    return {
+      authenticated: true,
+      keychainAvailable,
+      source: "environment",
+    };
+  }
+
+  const tokens = await loadTokens();
+  if (!tokens) {
+    return {
+      authenticated: false,
+      keychainAvailable,
+      source: null,
+    };
+  }
+
+  const expiresIn = tokens.expiresAt ? tokens.expiresAt - Date.now() : null;
+  const expiresInMinutes =
+    expiresIn !== null ? Math.floor(expiresIn / 60000) : null;
+
+  return {
+    authenticated: true,
+    keychainAvailable,
+    source: "keychain",
+    expiresInMinutes,
+    expired: expiresIn !== null && expiresIn <= 0,
+  };
 }
 
 export async function getValidAccessToken(): Promise<string> {
@@ -218,8 +270,7 @@ export async function getValidAccessToken(): Promise<string> {
   const tokens = await loadTokens();
   if (!tokens) {
     throw new AuthenticationError(
-      "Not authenticated. Run 'bun run start auth login' first, " +
-        "or set INOREADER_ACCESS_TOKEN environment variable.",
+      "Not authenticated. Use the auth_login tool or set INOREADER_ACCESS_TOKEN environment variable.",
     );
   }
 
@@ -242,7 +293,7 @@ export async function getValidAccessToken(): Promise<string> {
       return newTokens.access_token;
     } catch (error) {
       throw new AuthenticationError(
-        `Failed to refresh token: ${error}. Run 'bun run start auth login' to re-authenticate.`,
+        `Failed to refresh token: ${error}. Use the auth_login tool to re-authenticate.`,
       );
     }
   }
@@ -261,9 +312,7 @@ export async function showStatus(): Promise<void> {
 
   const tokens = await loadTokens();
   if (!tokens) {
-    console.log(
-      "Not authenticated. Run 'bun run start auth login' to authenticate.",
-    );
+    console.log("Not authenticated. Use the auth_login tool to authenticate.");
     return;
   }
 
