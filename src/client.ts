@@ -178,16 +178,24 @@ export class InoreaderClient {
     );
   }
 
-  async getStarredItems(count = 20): Promise<StreamContentsResponse> {
+  async getStarredItems(
+    count = 20,
+    continuation?: string,
+  ): Promise<StreamContentsResponse> {
     return this.getStreamContents("user/-/state/com.google/starred", {
       count,
+      continuation,
       includeAllItems: true,
     });
   }
 
-  async getUnreadItems(count = 20): Promise<StreamContentsResponse> {
+  async getUnreadItems(
+    count = 20,
+    continuation?: string,
+  ): Promise<StreamContentsResponse> {
     return this.getStreamContents("user/-/state/com.google/reading-list", {
       count,
+      continuation,
       excludeTarget: "user/-/state/com.google/read",
     });
   }

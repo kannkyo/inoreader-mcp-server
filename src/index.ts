@@ -314,7 +314,7 @@ server.tool(
 // Get articles
 server.tool(
   "get_articles",
-  "Get articles from a feed, folder, or all subscriptions",
+  "Get articles from a feed, folder, or all subscriptions. Supports pagination via continuation tokens.",
   {
     stream_id: z
       .string()
@@ -330,8 +330,12 @@ server.tool(
       .boolean()
       .default(true)
       .describe("If true, only return unread articles"),
+    continuation: z
+      .string()
+      .optional()
+      .describe("Continuation token from a previous get_articles response for pagination"),
   },
-  async ({ stream_id, count, unread_only }) => {
+  async ({ stream_id, count, unread_only, continuation }) => {
     try {
       const c = await getClient();
       let contents: StreamContentsResponse;
@@ -339,16 +343,17 @@ server.tool(
       if (stream_id) {
         contents = await c.getStreamContents(stream_id, {
           count,
+          continuation,
           excludeTarget: unread_only
             ? "user/-/state/com.google/read"
             : undefined,
         });
       } else if (unread_only) {
-        contents = await c.getUnreadItems(count);
+        contents = await c.getUnreadItems(count, continuation);
       } else {
         contents = await c.getStreamContents(
           "user/-/state/com.google/reading-list",
-          { count },
+          { count, continuation },
         );
       }
 
@@ -370,7 +375,7 @@ server.tool(
 // Get starred articles
 server.tool(
   "get_starred_articles",
-  "Get starred (saved) articles",
+  "Get starred (saved) articles. Supports pagination via continuation tokens.",
   {
     count: z
       .number()
@@ -378,13 +383,18 @@ server.tool(
       .max(100)
       .default(20)
       .describe("Number of articles to return (1-100)"),
+    continuation: z
+      .string()
+      .optional()
+      .describe("Continuation token from a previous get_starred_articles response for pagination"),
   },
-  async ({ count }) => {
+  async ({ count, continuation }) => {
     try {
       const c = await getClient();
-      const contents = await c.getStarredItems(count);
+      const contents = await c.getStarredItems(count, continuation);
       const result = {
         count: contents.items.length,
+        continuation: contents.continuation,
         articles: contents.items.map(formatArticle),
       };
       return {
