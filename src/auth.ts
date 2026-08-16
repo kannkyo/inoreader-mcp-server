@@ -8,7 +8,7 @@ import {
 
 const OAUTH_BASE_URL = "https://www.inoreader.com/oauth2";
 const REDIRECT_PORT = 19812;
-const REDIRECT_URI = `http://127.0.0.1:${REDIRECT_PORT}/callback`;
+const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 
 interface TokenResponse {
   access_token: string;
@@ -130,7 +130,7 @@ function startCallbackServer(): {
 
     const server = Bun.serve({
       port: REDIRECT_PORT,
-      hostname: "127.0.0.1",
+      hostname: "localhost",
       fetch(req) {
         const url = new URL(req.url);
 
