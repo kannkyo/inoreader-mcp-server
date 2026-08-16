@@ -1,0 +1,13 @@
+{
+  "name": "inoreader-mcp-server",
+  "owner": {
+    "name": "kannkyo"
+  },
+  "plugins": [
+    {
+      "name": "news-inoreader",
+      "source": "./plugins/news-inoreader",
+      "description": "Inoreader API を使用してニュース記事を検索・管理するプラグイン"
+    }
+  ]
+}
