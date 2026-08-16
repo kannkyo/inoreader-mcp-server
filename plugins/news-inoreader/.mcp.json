@@ -1,0 +1,15 @@
+{
+    "mcpServers": {
+        "inoreader": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "github:kannkyo/inoreader-mcp-server"
+            ],
+            "env": {
+                "INOREADER_APP_ID": "${INOREADER_APP_ID}",
+                "INOREADER_APP_KEY": "${INOREADER_APP_KEY}"
+            }
+        }
+    }
+}

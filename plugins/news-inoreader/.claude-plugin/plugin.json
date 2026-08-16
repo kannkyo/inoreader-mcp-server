@@ -1,7 +1,7 @@
 {
   "name": "news-inoreader",
   "description": "Inoreader API を使用してニュース記事を検索・管理するプラグイン",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "kannkyo"
   }
